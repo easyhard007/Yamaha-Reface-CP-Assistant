@@ -32,6 +32,8 @@
     <script src="keyboard.js"></script>
     <script src="midi_util.js"></script>
     <script src="auto_sustain.js"></script>
+    <!-- 引入 NoSleep.js 解决屏幕常亮 -->
+    <script src="https://npm.elemecdn.com/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 </head>
 <body>
 
@@ -163,6 +165,8 @@
         window.split_point = 52; // 高低音区分割点
         window.autoSustainEnabled = false;
         window.currentDeviceID = 0; // 默认设备编号 0 (Reface CP)
+
+        const noSleep = new NoSleep();
 
         // ================= 全局颜色状态 (用于驱动背景与 UI) =================
         window.visualState = {
@@ -440,6 +444,8 @@
                 statusEl.innerText = "✅ 启动成功！已建立连接";
                 // 启动成功后，申请屏幕常亮！
                 requestWakeLock();
+                noSleep.enable();
+                console.log("NoSleep 强力保活已开启！");
 
                 // 在发音之前，先让硬件的转调值回归到软件当前显示的值（通常是 0）
                 if (typeof sendTransposeSysEx === 'function') {
@@ -534,7 +540,9 @@
             statusEl.style.color = "#aaa";
             // 【新增】：停止工作站后，释放屏幕常亮特权，允许手机息屏省电
             releaseWakeLock();
-
+            // 【终极方案】：关闭 NoSleep，允许息屏
+            noSleep.disable();
+            console.log("NoSleep 已关闭。");
         }
 
         function changeTranspose(delta) {
