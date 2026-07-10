@@ -37,10 +37,6 @@ h2 {
     margin-top: 10px; margin-bottom: 5px; white-space: nowrap; z-index: 2; position: relative;
     text-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
-.mk4-badge {
-    background-color: #A855F7; color: #ffffff; font-size: 0.75em; 
-    padding: 0px 10px 2px 8px; border-radius: 10px; transform: translateY(0.08em);
-}
 
 /* ==========================================
    【核心卡片容器】
@@ -182,8 +178,7 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
         /* width: 80%; */
         max-width: 700px;
     }
-    
-    #pad-matrix { margin-bottom: 10px; max-width: 400px;}
+
     #pressed-notes { margin-bottom: 10px; }
     h2 { margin-top: 5px; font-size: clamp(1rem, 4vw, 1.8rem); }
 }

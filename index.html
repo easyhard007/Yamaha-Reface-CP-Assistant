@@ -206,7 +206,6 @@
                 });
             }
             // 初始化其他文件的组件
-            if (typeof initPadMatrixDOM === 'function') initPadMatrixDOM(); 
             if (typeof initKeyboardDOM === 'function') initKeyboardDOM(); 
             if (typeof initColorPicker === 'function') initColorPicker();
             if (typeof initBackground === 'function') initBackground();
@@ -250,18 +249,28 @@
             }
             
             try {
-                window.midiOutput.send([0x9F, 0x0C, 0x7F]); //发送信号
-                window.isRunning = true; 
-                
+                window.isRunning = true;
                 updateFabState();
-                startBtn.classList.add('success'); 
-                statusEl.innerText = "✅ 启动成功！已接管键盘灯光控制权"; 
-                statusEl.style.color = "#00e676";
-                
-                if (typeof triggerHandshakeFlash === 'function') {
-                    triggerHandshakeFlash();
-                } else if (typeof forceSendCurrentColorToMidi === 'function') {
-                    forceSendCurrentColorToMidi(); 
+                startBtn.classList.add('success');
+                statusEl.innerText = "✅ 启动成功！已建立连接";
+
+                // --- Yamaha Reface CP 专属：交错启动音效 (E6, G6, C7) ---
+                const notes = [88, 91, 96]; // E6, G6, C7的 MIDI 编号
+                notes.forEach((note, index) => {
+                    setTimeout(() => {
+                        if (window.midiOutput && window.isRunning) {
+                            window.midiOutput.send([0x90, note, 80]); // Note On (力度80)
+
+                            // 每个音符在发出 600ms 后自动关闭，确保每个音符长度一致
+                            setTimeout(() => {
+                                if (window.midiOutput) window.midiOutput.send([0x80, note, 0]); // Note Off
+                            }, 600);
+                        }
+                    }, index * 150); // 每个音符间隔 150ms
+                });
+
+                if (typeof forceSendCurrentColorToMidi === 'function') {
+                    forceSendCurrentColorToMidi();
                 }
 
                 // ==========================================
