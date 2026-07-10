@@ -1,7 +1,7 @@
 // ==========================================
 // 强制刷新版 Service Worker
 // ==========================================
-const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.18';
+const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.20';
 
 const urlsToCache = [
   './',
@@ -16,7 +16,7 @@ const urlsToCache = [
   './light_control.js',
   './midi_util.js',
   './auto_sustain.js',
-  'https://npm.elemecdn.com/nosleep.js@0.12.0/dist/NoSleep.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/nosleep/0.12.0/NoSleep.min.js',
 
   './manifest.json',
   './icon.png',
