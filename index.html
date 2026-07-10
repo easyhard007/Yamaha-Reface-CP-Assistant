@@ -84,7 +84,7 @@
                 <div class="control-unit">
                     <span class="function-label">Split</span>
                     <div class="glass-btn btn-circle" onclick="changeSplitPoint(-1)">−</div>
-                    <span id="split-display" class="transpose-value">C4</span>
+                    <span id="split-display" class="transpose-value">E3</span>
                     <div class="glass-btn btn-circle" onclick="changeSplitPoint(1)">+</div>
                 </div>
             </div>
@@ -380,8 +380,44 @@
         }
 
         function selectPort() { window.midiOutput = window.midiAccess.outputs.get(document.getElementById('midiPorts').value); }
+        // 请求屏幕常亮
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('屏幕唤醒锁已激活 (Screen Wake Lock Active)');
 
-		 function startControl() {
+                    // 监听系统强制释放锁的事件（比如用户手动锁屏后再解锁，需要重新申请）
+                    wakeLock.addEventListener('release', () => {
+                        console.log('屏幕唤醒锁被系统释放');
+                    });
+                } else {
+                    console.warn('当前浏览器不支持 Wake Lock API');
+                }
+            } catch (err) {
+                console.error(`唤醒锁请求失败: ${err.name}, ${err.message}`);
+            }
+        }
+
+        // 释放屏幕常亮
+        function releaseWakeLock() {
+            if (wakeLock !== null) {
+                wakeLock.release()
+                    .then(() => {
+                        wakeLock = null;
+                        console.log('屏幕唤醒锁已手动释放');
+                    });
+            }
+        }
+
+        // 应对页面可见性变化（切到后台再切回来时，自动重新申请）
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible' && window.isRunning) {
+                await requestWakeLock();
+            }
+        });
+
+		function startControl() {
             const startBtn = document.getElementById('start-btn');
             const statusEl = document.getElementById('status');
 
@@ -398,9 +434,12 @@
                     clearInterval(autoConnectTimer);
                     autoConnectTimer = null;
                 }
+
                 updateFabState();
                 startBtn.classList.add('success');
                 statusEl.innerText = "✅ 启动成功！已建立连接";
+                // 启动成功后，申请屏幕常亮！
+                requestWakeLock();
 
                 // 在发音之前，先让硬件的转调值回归到软件当前显示的值（通常是 0）
                 if (typeof sendTransposeSysEx === 'function') {
@@ -491,8 +530,11 @@
             }
             
             startBtn.classList.remove('success'); 
-            statusEl.innerText = "已退回普通模式"; 
+            statusEl.innerText = "已退回普通模式";
             statusEl.style.color = "#aaa";
+            // 【新增】：停止工作站后，释放屏幕常亮特权，允许手机息屏省电
+            releaseWakeLock();
+
         }
 
         function changeTranspose(delta) {
