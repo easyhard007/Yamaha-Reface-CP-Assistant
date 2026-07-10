@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+    <meta name="color-scheme" content="dark">
+    <title>Yamaha Reface CP Assistant</title>
+    
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#121212">
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <!-- 1. 引入 CSS -->
+    <link rel="stylesheet" href="style.css">
+
+    <!-- 2. 引入第三方库 -->
+    <script src="vendor/three.min.js"></script>
+    <script src="vendor/tonal.min.js"></script>
+    <script src="vendor/iro.min.js"></script>
+
+    
+    <!-- 3. 引入业务解耦模块 -->
+	<script src="scale_chord_engine.js"></script> 
+	<script src="modulation_engine.js"></script>
+	<script src="color_mapping.js"></script>
+	<script src="virtual_piano_engine.js"></script>
+    <script src="background_animation.js"></script>
+    <script src="light_control.js"></script>
+    <script src="keyboard.js"></script>
+</head>
+<body>
+
+    <div id="glcanvas" style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none;"></div>
+
+    <div id="main-page">
+        <h2>Yamaha Reface CP Assistant
+        </h2>
+        
+        <div class="card" id="piano-card">
+            <!-- 用来等分下半部分高度的包裹器 -->
+            <div id="piano-lower-half">
+                <!-- 模块2：和弦监控 -->
+                <div id="pressed-notes">
+                    <div style="height:100%; display:flex; justify-content:center; align-items:center; color:#666; font-size:16px;">等待弹奏...</div>
+                </div>
+                
+                <!-- 模块3：钢琴键盘 -->
+                <div id="keyboard-wrapper">
+                    <div id="keyboard"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" id="color-card">
+            <div id="light-panel-wrapper">
+                <!-- 左侧调色盘 -->
+                <div id="color-picker-section">
+                    <div id="color-picker-container"></div>
+				</div>
+				<!-- 右侧 40%：灯光和弦与调性监控 (三行结构) -->
+                <div id="light-info-section">
+                    <div id="light-roman-display">-</div>
+                    <div id="light-function-display">VI</div> <!-- 占位符 -->
+                    <div id="light-key-display">正在识别调性</div>
+                </div>
+            </div>
+        </div>
+		<div class="card" id="debug-panel-chord" style="display:none;">
+            <h3>🛠️ 算法 Debug 面板 (Tonal.js Filter)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tonal 原始和弦</th>
+                        <th>置信度</th>
+                        <th>长度</th>
+                        <th>得分</th>
+                        <th>降维归类</th>
+                    </tr>
+                </thead>
+                <tbody id="debug-tbody">
+                    <tr><td colspan="5" style="color:#666;"></td></tr>
+                </tbody>
+            </table>
+        </div>
+		<!-- 新增：调性追踪数据调试面板 -->
+        <div class="card" id="debug-panel-scale" style="display:none;">
+            <h3>📊 调性追踪向量表 (Chroma Vector)</h3>
+            <!-- 横向排列 12 个音名的实时权重 -->
+            <div id="pitch-weights-row" style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:15px; background:#111; padding:10px; border-radius:8px;">
+                <!-- JS 动态生成 -->
+            </div>
+            <table>
+                <thead>
+                    <tr><th>排名</th><th>分析调性</th><th>置信度得分</th></tr>
+                </thead>
+                <tbody id="scale-debug-tbody">
+                    <tr><td colspan="3" style="color:#666;"></td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="fab-btn" onclick="openSettings()">?</div>
+    </div>
+
+    <!-- 设置页面 -->
+   <div id="settings-page">
+        <button id="back-btn" onclick="closeSettings()">⬅ 返回</button>
+        <h2 style="color: #d500f9;">⚙️ 设置</h2>
+        <div class="card" id="settings-card" style="margin-top: 30px;">
+            <p style="color:white; font-size: 14px; margin-bottom: 20px;">请选择MIDI 端口</p>
+
+            <select id="midiPorts" onchange="selectPort()">
+                <option value="">请求 MIDI 权限中...</option>
+            </select>
+            <br>
+            <button id="start-btn" class="action-btn" onclick="startControl()">🟢 启动</button>
+            <button class="action-btn stop-btn" onclick="stopControl()">⏹ 停止</button>
+            <div id="status">等待操作...</div>
+        </div>
+    </div>
+
+    <script>
+        // ================= 全局状态与常量 =================
+        window.midiAccess = null; 
+        window.midiOutput = null; 
+        window.isRunning = false;
+
+        // ================= 全局颜色状态 (用于驱动背景与 UI) =================
+        window.visualState = {
+            h: 260, // 初始色相 (蓝紫)
+            s: 100,
+            l: 100,
+            envelope: 0 // 能量包络 (0-1)
+        };
+
+        // 【新增】：幽灵音频上下文与保活振荡器
+        let wakelockAudioCtx = null;
+        let wakelockOscillator = null;
+
+        window.isPedalDown = false;          
+        window.activeNotes = new Set();      
+        window.pedalHeldNotes = new Set();   
+        window.allActiveNotes = new Set();   
+
+        function updateCombinedNotes() {
+            window.allActiveNotes = new Set([...window.activeNotes, ...window.pedalHeldNotes]);
+        }
+
+        // ================= MIDI 核心监听逻辑 =================
+        function handleMIDIInput(event) {
+            const [status, data1, data2] = event.data; const cmd = status >> 4; const channel = status & 0x0F;
+            if (channel === 15) return; 
+
+            if (cmd === 11 && data1 === 64) {
+                window.isPedalDown = data2 >= 64;
+                if (!window.isPedalDown) {
+                    window.pedalHeldNotes.clear();
+                    updateCombinedNotes();
+                    if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
+                }
+                return; 
+            }
+
+            if (cmd === 9 && data2 > 0) { 
+                window.activeNotes.add(data1); 
+                if (window.isPedalDown) window.pedalHeldNotes.add(data1); 
+                else window.pedalHeldNotes.delete(data1); 
+                
+                if (typeof registerNoteForScale === 'function') registerNoteForScale(data1);
+                
+                // 【新增：将 MIDI 信号投喂给虚拟钢琴引擎计算能量！】
+                if (typeof triggerVirtualNoteOn === 'function') {
+                    triggerVirtualNoteOn(data1, data2);
+                }
+                
+                updateCombinedNotes();
+                if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
+            } 
+            else if (cmd === 8 || (cmd === 9 && data2 === 0)) { 
+                window.activeNotes.delete(data1); 
+                if (window.isPedalDown) window.pedalHeldNotes.add(data1);
+                updateCombinedNotes();
+                if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
+            }
+        }
+
+
+
+        // ================= 设置与连接 =================
+        function openSettings() { document.getElementById('settings-page').classList.add('show'); }
+        function closeSettings() { document.getElementById('settings-page').classList.remove('show'); }
+        function updateFabState() {
+            const fab = document.getElementById('fab-btn');
+            if (window.midiOutput && window.isRunning) { fab.innerText = "✓"; fab.classList.add('success'); } 
+            else { fab.innerText = "?"; fab.classList.remove('success'); }
+        }
+
+        window.onload = () => {
+            // 强制锁定手机竖屏 (Portrait)
+            if (screen.orientation && screen.orientation.lock) {
+                // 捕获 Promise 错误，因为在非全屏/非 HTTPS/部分桌面端可能会被拒绝，忽略即可
+                screen.orientation.lock("portrait").catch(function(error) {
+                    console.log("屏幕方向锁定被系统拒绝或不支持: ", error);
+                });
+            }
+            // 初始化其他文件的组件
+            if (typeof initPadMatrixDOM === 'function') initPadMatrixDOM(); 
+            if (typeof initKeyboardDOM === 'function') initKeyboardDOM(); 
+            if (typeof initColorPicker === 'function') initColorPicker();
+            if (typeof initBackground === 'function') initBackground();
+            
+            navigator.requestMIDIAccess({ sysex: true }).then(onMIDISuccess).catch(err => {
+                document.getElementById('status').innerText = "获取权限失败，请使用 HTTPS 环境";
+            });
+        };
+
+        function onMIDISuccess(access) {
+            window.midiAccess = access; populateMIDIOutputs();
+            for (let input of window.midiAccess.inputs.values()) input.onmidimessage = handleMIDIInput;
+            window.midiAccess.onstatechange = (e) => {
+                populateMIDIOutputs();
+                if(e.port.type === "input") {
+                    for (let input of window.midiAccess.inputs.values()) input.onmidimessage = handleMIDIInput;
+                }
+            };
+        }
+
+        function populateMIDIOutputs() {
+            const select = document.getElementById('midiPorts');
+            const currentSelectedId = window.midiOutput ? window.midiOutput.id : select.value;
+            select.innerHTML = '<option value="">-- 请选择 DAW / Port 2 --</option>';
+            for (let output of window.midiAccess.outputs.values()) {
+                let option = document.createElement('option'); option.value = output.id; option.text = output.name; 
+                if (output.id === currentSelectedId) option.selected = true; select.appendChild(option);
+            }
+        }
+
+        function selectPort() { window.midiOutput = window.midiAccess.outputs.get(document.getElementById('midiPorts').value); }
+
+		 function startControl() {
+            const startBtn = document.getElementById('start-btn');
+            const statusEl = document.getElementById('status');
+
+            if (!window.midiOutput) {
+                statusEl.innerText = "❌ 启动失败：请先在上方选择 MIDI 端口！";
+                statusEl.style.color = "#ff5252";
+                return;
+            }
+            
+            try {
+                window.midiOutput.send([0x9F, 0x0C, 0x7F]); //发送信号
+                window.isRunning = true; 
+                
+                updateFabState();
+                startBtn.classList.add('success'); 
+                statusEl.innerText = "✅ 启动成功！已接管键盘灯光控制权"; 
+                statusEl.style.color = "#00e676";
+                
+                if (typeof triggerHandshakeFlash === 'function') {
+                    triggerHandshakeFlash();
+                } else if (typeof forceSendCurrentColorToMidi === 'function') {
+                    forceSendCurrentColorToMidi(); 
+                }
+
+                // ==========================================
+                // 【核心新增】：开启幽灵音频保活 (Audio Wakelock)
+                // ==========================================
+                try {
+                    if (!wakelockAudioCtx) {
+                        wakelockAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    // 如果处于挂起状态（某些浏览器对非手势触发的限制），唤醒它
+                    if (wakelockAudioCtx.state === 'suspended') {
+                        wakelockAudioCtx.resume();
+                    }
+                    
+                    // 创建一个振荡器
+                    wakelockOscillator = wakelockAudioCtx.createOscillator();
+                    const gainNode = wakelockAudioCtx.createGain();
+                    
+                    // 必须将音量设置为极其微弱的浮点数，或者直接为 0 (某些严格的系统设为0会失效，所以用 0.0001)
+                    gainNode.gain.value = 0.0001; 
+                    
+                    wakelockOscillator.connect(gainNode);
+                    gainNode.connect(wakelockAudioCtx.destination);
+                    
+                    // 开始在后台无限循环播放这极其微弱的蜂鸣音，从而欺骗系统保持线程活跃
+                    wakelockOscillator.start();
+                    console.log("幽灵音频保活已开启！");
+                } catch(e) {
+                    console.warn("音频保活开启失败", e);
+                }
+                
+            } catch (err) {
+                statusEl.innerText = "❌ 启动失败：MIDI 端口拒绝访问";
+                statusEl.style.color = "#ff5252";
+            }
+        }
+
+        function stopControl() {
+            const startBtn = document.getElementById('start-btn');
+            const statusEl = document.getElementById('status');
+
+            window.isRunning = false; 
+            updateFabState();
+            
+            if(window.midiOutput) {
+                window.midiOutput.send([0x9F, 0x0C, 0x00]);
+            }
+
+            // ==========================================
+            // 【核心新增】：关闭幽灵音频
+            // ==========================================
+            if (wakelockOscillator) {
+                try {
+                    wakelockOscillator.stop();
+                    wakelockOscillator.disconnect();
+                    wakelockOscillator = null;
+                } catch(e) {}
+            }
+            if (wakelockAudioCtx && wakelockAudioCtx.state !== 'closed') {
+                wakelockAudioCtx.suspend();
+            }
+            
+            startBtn.classList.remove('success'); 
+            statusEl.innerText = "已退回普通模式"; 
+            statusEl.style.color = "#aaa";
+        }
+
+    </script>
+    <!-- PWA 注册与强制刷新监听 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => {
+                        console.log('Service Worker 注册成功!', reg);
+                        
+                        // 监听新版本的到来
+                        reg.addEventListener('updatefound', () => {
+                            const newWorker = reg.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                // 当新版本准备好且旧版本已被干掉时
+                                if (newWorker.state === 'activated') {
+                                    console.log('新版本已激活！正在强制刷新页面...');
+                                    // 直接硬刷新页面，加载最新代码
+                                    window.location.reload();
+                                }
+                            });
+                        });
+                    })
+                    .catch(err => console.log('Service Worker 注册失败', err));
+            });
+        }
+    </script>
+</body>
+</html>

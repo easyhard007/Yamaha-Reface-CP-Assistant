@@ -1,0 +1,156 @@
+# Launchkey Light Station MK4 — Project Summary
+# Pure vanilla JS + HTML/CSS SPA, no build tools, no TS, no Python.
+# All modules communicate via global `window.*` properties (no ES modules).
+
+## DIR TREE
+├── index.html              # Entry point, MIDI I/O, DOM shell
+├── style.css               # All styles (glassmorphism, responsive, dark theme)
+├── light_control.js        # Central 60fps loop, HSL→RGB→SysEx driver, pad LEDs
+├── keyboard.js             # Virtual piano keyboard UI, chord/scale display
+├── scale_chord_engine.js   # Chord detection (3 strategies) + key/scale detection
+├── modulation_engine.js    # Key modulation detection (hijack/weaken pitch weights)
+├── color_mapping.js        # Roman numeral → HSL color (T/S/D diatonic 7-color)
+├── virtual_piano_engine.js # Per-note velocity envelope simulation (attack+decay)
+├── background_animation.js # Three.js WebGL aurora background (ColorBends)
+├── manifest.json           # PWA config (fullscreen, portrait)
+├── sw.js                   # Service Worker (network-first cache)
+├── icon.png                # PWA icon 512×512
+├── vendor/
+│   ├── three.min.js        # Three.js (WebGL)
+│   ├── tonal.min.js        # Tonal.js (music theory)
+│   └── iro.min.js          # iro.js v5.5.2 (color picker)
+└── backup_files/           # Old backups (audio_engine, chord_detection)
+
+## LOAD ORDER (≈ dependency chain)
+index.html → vendor/* → scale_chord_engine → modulation_engine → color_mapping
+           → virtual_piano_engine → background_animation → light_control → keyboard
+
+## FILE DETAILS
+
+### index.html
+SPA shell + MIDI setup/teardown. Key globals: `midiAccess`, `midiOutput`, `isRunning`,
+`deviceSysExID` (0x13=MiniMK4, 0x14=MiniMK4_Full), `activeNotes`(Set), `pedalHeldNotes`(Set),
+`allActiveNotes`(Set). Key functions:
+- `handleMIDIInput(event)` — parse [status,data1,data2]; dispatch note-on/off, CC64 sustain;
+  calls registerNoteForScale(), triggerVirtualNoteOn(), refreshKeyboardUI()
+- `onMIDISuccess(access)` — store MIDI access, populate port dropdown, attach input listener
+- `startControl()` / `stopControl()` — send all-notes-off, toggle isRunning, audio wakelock
+- `selectDeviceModel()` — set deviceSysExID from dropdown
+
+### light_control.js
+Central 60fps engine. Constants: TOP_PADS=[96..103], BOTTOM_PADS=[112..119], FADE=500ms,
+ANIM_TICK=16ms, MIDI_TICK=33ms. Key structures: globalPadColors[16]={h,s,l},
+padLightSources[16]={userHSL,envelope}, lastSentColors[16] (dirty cache). Functions:
+- `engineLoop(currentTime)` — updateVirtualPianoEngine() → smooth volume (asymmetric: 0.7 up/0.9 down)
+  → updateBackgroundState() → compress volume pow(0.4) → apply envelope to pad[0]
+  → applyWaveEffect() every 16ms → update HTML pad glows → flushMidiDriver() every 33ms
+- `flushMidiDriver()` — compare globalPadColors vs lastSentColors; if dirty send SysEx:
+  [F0 00 20 29 02 <deviceID> 01 43 <padID> <r7> <g7> <b7> F7] (7-bit RGB = 8-bit/2)
+- `applyWaveEffect()` — propagate pad[0] color → pads[1..7] with 0.6 lerp/tick
+- `interpolateHSL(src,tgt,progress)` — polar-path HSL lerp avoiding hue-wrap
+- `initColorPicker()` — create iro.ColorPicker, start engineLoop, initTSDOverlay after 100ms
+- `triggerHandshakeFlash()` — flash all 16 pads white 2× (100ms on/off), reset lastSentColors to -1
+- `triggerPadLights()` — set envelope=1.0
+- `hslToRgb(h,s,l)` — HSL→8-bit RGB
+
+### keyboard.js
+Virtual piano UI. Visible range: NOTE_START=24..NOTE_END=96. Key functions:
+- `initPadMatrixDOM()` — create 16 .v-pad divs with .v-pad-light children
+- `initKeyboardDOM()` — create white/black key divs with .dot children; scroll to middle C
+- `calculateAndInjectDimensions()` — set --wk-width/--bk-width/--bk-margin/--pad-gap CSS vars;
+  VISIBLE_WHITE_KEYS = 14 (narrow) or 21 (wide)
+- `refreshKeyboardUI()` — called on every MIDI event + scale tick:
+  1) update .active-red/.active-pink dots 2) getScaleDebugData() → #light-key-display
+  3) processChordsForLight() → chord name + "OR" secondary → #pressed-notes
+  4) checkAndApplyModulation() 5) getRomanNumeral() → #light-roman-display
+  6) debounce(30ms) applyChordColorByNumeral() → #light-function-display
+- `handleAutoScroll(notesArray)` — scroll keyboard to keep pressed notes visible
+
+### scale_chord_engine.js
+Core music theory. Globals: currentPitchWeights[12], globalScaleRoot, SCALE_VECTORS[12][12].
+Key functions:
+- `processChordsForLight(midiNotes)` — 3-strategy chord detection:
+  A) Tonal.Chord.detect() with top-note pruning → score each
+  B) dictionary match: interval signature → CUSTOM_CHORDS map (shell voicings like 7omit3)
+  C) getDiatonicDyadChord() for 1-2 note combos
+  Returns sorted [{original,confidence,length,score,classified}]
+- `registerNoteForScale(note)` — currentPitchWeights[pc] += weighted(vel), apply 0.98 decay
+- `getScaleDebugData()` — Krumhansl-Schmuckler: correlate pitchWeights vs 12 major templates
+  → returns {weights,scales,bestText}
+- `getRomanNumeral(chordName)` — Tonal.Progression.toRomanNumerals(); handles slash chords
+- `getBassAnchorChord(midiNotes)` — figured-bass interval fallback: interval→chord type inference
+- `getDiatonicDyadChord(midiNotes)` — infer triads from 1-2 pitch classes using current key
+- `classifyChord(chordName)` — normalize to 5 categories: maj7|m7|7|m|M (strip alterations)
+- `evaluateConfidence(chordName,bassMidi)` — score candidate by bass-root alignment
+- Background: setInterval(500ms) decays pitchWeights ×0.90 when silent >5s
+
+### modulation_engine.js
+Key change detection. Functions:
+- `checkAndApplyModulation(bestChordName)` — debounced(300ms) entry; calls evaluateModulation if stable
+- `evaluateModulation(chordName)` — 4 rules:
+  1) abnormal V7/dom7 → hijack to key a 5th up
+  2) abnormal maj7 → hijack
+  3) modal interchange (borrowed chords) → hijack
+  4) half-dim/VI/II → weaken ×0.5 or ×0.7
+- `hijackPitchWeights(targetPcs)` — reset currentPitchWeights to template + UI flash
+- `weakenPitchWeights(multiplier)` — multiply all weights by multiplier
+
+### color_mapping.js
+Chord→color. Globals: diatonicColors{ I:{h:260}, IV:{h:20}, V:{h:170}, ii:{h:43},
+iii:{h:228}, vi:{h:290}, vii:{h:130} }, currentTargetHSL. Functions:
+- `applyChordColorByNumeral(roman)` — parse numeral → diatonicColors switch → set
+  padLightSources[0].userHSL, update chord dot, return function group name
+- `initTSDOverlay()` — create SVG on iro color wheel: T/S/D triangle + moving dot
+- `drawTSDTriangle(size)` — render triangle + labels
+- `getPosFromHue(hue,size,sat)` — hue angle → (x,y) on wheel
+- `updateChordDotPosition(forceSize)` — animate white dot to current position
+
+### virtual_piano_engine.js
+Piano physics sim. Arrays: keyVolumes[128], keyMaxVolumes[128] (C0=3.0→C7=1.0),
+keyDecayRates[128] (C0:10s→C7:5s). Globals: window.virtualAudioVolume. Functions:
+- `triggerVirtualNoteOn(note,velocity)` — force=(vel/127)^2 × maxVolume; update keyVolumes (rise only)
+- `updateVirtualPianoEngine(currentTime)` — per-frame: apply decayRate^dt; if unsustained → ×25 damping;
+  compute RMS → window.virtualAudioVolume
+
+### background_animation.js
+Three.js WebGL ColorBends. ShaderMaterial with 18 uniforms (uTime,uSpeed,uScale,uColors[6],etc).
+Globals: cbTargetEnergy, cbCurrentEnergy, cbTargetColor(Vector3), cbCurrentColor(Vector3). Functions:
+- `initBackground()` — ortho camera, fullscreen quad, shader with ColorBends fragment shader
+- `updateBackgroundState(volume,h,s,l)` — set cbTargetEnergy, cbTargetColor (lightness capped 0.40)
+- `renderBackground()` — rAF loop: smooth energy(0.1), color(0.05 lerp) → uColors[0], uIntensity;
+  auto-rotate uRot
+- `calculateOptimalScale()` — uScale: 16:9→2.5, 1:2→0.8 (linear)
+
+### style.css
+All styling: CSS vars (--wk-width,--bk-width,--bk-margin,--pad-gap) set by JS; .card glassmorphism
+(blur 20px); #pad-matrix grid 8col; .v-pad aspect-ratio square; .white-key/.black-key keyboard;
+.dot (.active-red/.active-pink) key indicators; #settings-page fixed overlay; media queries for
+max-height 880/600px and max-aspect-ratio 3:4
+
+### sw.js
+Service Worker. CACHE_NAME='launchkey-station-v0.145'. Caches: index.html, style.css, all JS,
+manifest.json, icon.png, vendor/*. Network-first strategy: fetch() → cache fallback.
+skipWaiting() + clients.claim() for immediate activation.
+
+### manifest.json
+PWA: "Launchkey Light Station MK4", fullscreen, portrait, icon 512×512 any maskable.
+
+## DATA FLOW
+MIDI input → registerNoteForScale() → pitchWeights decay → KS algorithm → key display
+         → processChordsForLight() → chord name + roman numeral → modulation check
+         → applyChordColorByNumeral() → padLightSources[0].userHSL
+         → triggerVirtualNoteOn() → keyVolumes[] → RMS → virtualAudioVolume
+         → engineLoop (60fps): volume smoothing → background energy/color
+           → pad[0] color (HSL w/envelope) → wave effect → flushMidiDriver (SysEx)
+
+## MIDI SysEx FORMAT
+[F0 00 20 29 02 <devID> 01 43 <padID> <R7> <G7> <B7> F7]
+devID: 0x13 (Mini MK4) or 0x14 (Mini MK4 Full)
+padID: 0x70..0x7F (top row) / 0x60..0x6F (bottom row)  -- check mapping in flushMidiDriver
+RGB: 7-bit (8-bit value / 2)
+
+## KEY GLOBALS (window.*)
+midiAccess, midiOutput, isRunning, deviceSysExID,
+activeNotes(Set), pedalHeldNotes(Set), allActiveNotes(Set),
+padLightSources[16]({userHSL,envelope}), virtualAudioVolume,
+currentPitchWeights[12], globalScaleRoot, currentTargetHSL
