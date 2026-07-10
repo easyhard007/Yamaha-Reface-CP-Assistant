@@ -167,26 +167,35 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
 .IroHandle { display: none !important; }
 
 /* --- 新增：功能控制面板 --- */
+/* --- 功能面板核心布局 --- */
 #function-card {
-    flex: 2;
-    min-height: 15vh;
-    display: flex; flex-direction: column;
-    justify-content: center;
-    gap: 15px;
+    flex: 2.5;
+    min-height: 20vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly; /* 关键：垂直方向均匀分布，解决底部发空问题 */
+    padding: 15px 20px;
+    box-sizing: border-box;
 }
 
-.function-row {
+.function-upper-area {
+    display: flex;
+    flex-direction: row; /* 默认：横向排列 */
+    justify-content: space-around; /* 两个单元左右拉开 */
+    align-items: center;
+    width: 100%;
+}
+
+.control-unit {
+    display: flex;
+    align-items: center;
+    gap: clamp(6px, 1.5vw, 15px); /* 内部元素（按钮和文字）的间距 */
+}
+
+.function-lower-area {
     display: flex;
     justify-content: center;
-    align-items: center;
-    /* 使用 clamp 让间距在最小 8px 和最大 20px 之间随宽度(5vw)自动变化 */
-    gap: clamp(8px, 4vw, 20px);
-}
-
-.function-label {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 16px;
-    font-weight: bold;
+    width: 100%;
 }
 
 .transpose-value {
@@ -266,10 +275,7 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
         /* width: 70%;  */
         padding: 5px; 
     }
-    #function-card {
-        padding: 5px;
-        min-height: 10vh;
-    }
+
     .function-row {
         gap: 10px;
     }
@@ -296,11 +302,22 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
 
     /* 4. 功能面板专属微调 */
     #function-card {
-        gap: 8px; /* 减小两行之间的上下间距 */
+        padding: 10px;
+    }
+
+    .function-upper-area {
+        flex-direction: column; /* 竖屏：转调和分割点变成上下堆叠 */
+        gap: 15px; /* 增加两行之间的间距 */
+    }
+
+    .control-unit {
+        width: 100%;
+        justify-content: center; /* 居中对齐 */
     }
 
     .function-label {
-        font-size: 13px; /* 缩小 Transpose 标签 */
+        min-width: 80px; /* 固定标签宽度，使加减按钮视觉对齐 */
+        text-align: left;
     }
 
     .transpose-value {
@@ -317,5 +334,9 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
     .btn-rect {
         padding: 8px 18px; /* 减小 Auto-Sustain 按钮尺寸 */
         font-size: 13px;
+    }
+
+    #color-picker-section {
+            border-right: none !important; /* 竖屏下移除右侧分割线 */
     }
 }

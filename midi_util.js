@@ -27,3 +27,17 @@ function sendTransposeSysEx(deviceId, transposeValue) {
             break;
     }
 }
+
+/** 发送延音踏板踩下信号 (CC 64, Value 127) */
+function sendSustainOn(deviceId) {
+    if (!window.midiOutput || !window.isRunning) return;
+    // 0xB0 代表 Channel 1 的 Control Change
+    window.midiOutput.send([0xB0, 64, 127]);
+    console.log(`[MIDI] ${MIDI_DEVICES[deviceId]} Sustain Pedal DOWN`);
+}
+/** 发送延音踏板松开信号 (CC 64, Value 0) */
+function sendSustainOff(deviceId) {
+    if (!window.midiOutput || !window.isRunning) return;
+    window.midiOutput.send([0xB0, 64, 0]);
+    console.log(`[MIDI] ${MIDI_DEVICES[deviceId]} Sustain Pedal UP`);
+}

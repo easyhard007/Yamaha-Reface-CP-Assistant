@@ -31,6 +31,7 @@
     <script src="light_control.js"></script>
     <script src="keyboard.js"></script>
     <script src="midi_util.js"></script>
+    <script src="auto_sustain.js"></script>
 </head>
 <body>
 
@@ -69,19 +70,31 @@
                 </div>
             </div>
         </div>
+
         <div class="card" id="function-card">
-            <!-- 第一行：转调控制 -->
-            <div class="function-row">
-                <span class="function-label">Transpose</span>
-                <div class="glass-btn btn-circle" onclick="changeTranspose(-1)">−</div>
-                <span id="transpose-display" class="transpose-value">0</span>
-                <div class="glass-btn btn-circle" onclick="changeTranspose(1)">+</div>
+        <!-- 上部区域：包含转调和分割点 -->
+            <div class="function-upper-area">
+                <div class="control-unit">
+                    <span class="function-label">Transpose</span>
+                    <div class="glass-btn btn-circle" onclick="changeTranspose(-1)">−</div>
+                    <span id="transpose-display" class="transpose-value">0</span>
+                    <div class="glass-btn btn-circle" onclick="changeTranspose(1)">+</div>
+                </div>
+
+                <div class="control-unit">
+                    <span class="function-label">Split</span>
+                    <div class="glass-btn btn-circle" onclick="changeSplitPoint(-1)">−</div>
+                    <span id="split-display" class="transpose-value">C4</span>
+                    <div class="glass-btn btn-circle" onclick="changeSplitPoint(1)">+</div>
+                </div>
             </div>
-            <!-- 第二行：自动踏板 -->
-            <div class="function-row">
-                <div id="sustain-btn" class="glass-btn btn-rect" onclick="toggleAutoSustain()">Auto-Sustain</div>
+
+            <!-- 下部区域：自动踏板按钮 -->
+            <div class="function-lower-area">
+                <div id="sustain-btn" class="glass-btn btn-rect" onclick="toggleAutoSustain()">AUTO-SUSTAIN</div>
             </div>
         </div>
+
 		<div class="card" id="debug-panel-chord" style="display:none;">
             <h3>🛠️ 算法 Debug 面板 (Tonal.js Filter)</h3>
             <table>
@@ -144,6 +157,7 @@
         let autoConnectTimer = null;
 
         window.transposeValue = 0;
+        window.split_point = 60; // 高低音区分割点
         window.autoSustainEnabled = false;
         window.currentDeviceID = 0; // 默认设备编号 0 (Reface CP)
 
@@ -162,7 +176,24 @@
         window.isPedalDown = false;          
         window.activeNotes = new Set();      
         window.pedalHeldNotes = new Set();   
-        window.allActiveNotes = new Set();   
+        window.allActiveNotes = new Set();
+
+        // MIDI 编号转音名工具 (用于 UI 显示)
+        function midiToNoteName(midi) {
+            const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const octave = Math.floor(midi / 12) - 1; // MIDI 60 是 C4
+            const name = names[midi % 12];
+            return name + octave;
+        }
+
+        function changeSplitPoint(delta) {
+            window.split_point += delta;
+            // 限制在合理范围 (如 A0 到 C8)
+            if (window.split_point < 21) window.split_point = 21;
+            if (window.split_point > 108) window.split_point = 108;
+
+            document.getElementById('split-display').innerText = midiToNoteName(window.split_point);
+        }
 
         function updateCombinedNotes() {
             window.allActiveNotes = new Set([...window.activeNotes, ...window.pedalHeldNotes]);
@@ -401,6 +432,9 @@
             updateFabState();
             
             if(window.midiOutput) {
+                if (typeof sendSustainOff === 'function') {
+                    sendSustainOff(window.currentDeviceID);
+                }
                 window.midiOutput.send([0x9F, 0x0C, 0x00]);
             }
 
@@ -454,6 +488,9 @@
                 btn.classList.add('btn-active');
             } else {
                 btn.classList.remove('btn-active');
+            }
+            if (typeof sustainer === 'function') {
+                sustainer();
             }
         }
 

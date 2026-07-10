@@ -1,7 +1,7 @@
 // ==========================================
 // 强制刷新版 Service Worker
 // ==========================================
-const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.10';
+const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.12';
 
 const urlsToCache = [
   './',
@@ -15,6 +15,7 @@ const urlsToCache = [
   './virtual_piano_engine.js',
   './light_control.js',
   './midi_util.js',
+  './auto_sustain.js',
 
   './manifest.json',
   './icon.png',
