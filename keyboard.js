@@ -116,13 +116,19 @@ function refreshKeyboardUI() {
     for (let i = NOTE_START; i <= NOTE_END; i++) {
         const keyDiv = document.getElementById(`key-${i}`);
         if (!keyDiv) continue;
+
+        if (i === window.split_point) {
+                keyDiv.classList.add('is-split');
+        } else {
+            keyDiv.classList.remove('is-split');
+        }
+
         if (window.activeNotes.has(i)) {
             keyDiv.classList.add('active-red'); keyDiv.classList.remove('active-pink');
         } else if (window.pedalHeldNotes.has(i)) {
             keyDiv.classList.remove('active-red'); keyDiv.classList.add('active-pink');
         } else {
             keyDiv.classList.remove('active-red'); keyDiv.classList.remove('active-pink');
-
         }
     }
 

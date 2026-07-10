@@ -127,6 +127,25 @@ h2 {
     background: #ff2a2a; 
 }
 
+.key.is-split::after {
+content: '';
+position: absolute;
+left: 50%;
+transform: translateX(-50%);
+/* 尺寸与形状 */
+width: clamp(6px, 1vh, 10px);
+height: clamp(6px, 1vh, 10px);
+background: #2196f3;
+clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+
+/* 位置：贴近底部 */
+bottom: 5px;
+z-index: 3; /* 层级低于 .dot (z-index 4)，这样圆点会覆盖在三角上方 */
+
+filter: drop-shadow(0 0 3px rgba(33, 150, 243, 0.8));
+pointer-events: none;
+}
+
 /* 粉色：物理松开但被踏板保持 */
 .key:not(.active-red).active-pink .dot { 
     display: block !important; /* 强制显示 */

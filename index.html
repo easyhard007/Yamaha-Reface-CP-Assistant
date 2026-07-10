@@ -90,8 +90,11 @@
             </div>
 
             <!-- 下部区域：自动踏板按钮 -->
-            <div class="function-lower-area">
+            <!-- 下部区域：自动踏板按钮与测试按钮 -->
+            <div class="function-lower-area" style="gap: 15px;">
                 <div id="sustain-btn" class="glass-btn btn-rect" onclick="toggleAutoSustain()">AUTO-SUSTAIN</div>
+                <!-- 新增测试按钮，增加一个微红的边框色以示区别 -->
+                <div class="glass-btn btn-rect" style="border-color: rgba(255, 82, 82, 0.4); min-width: 80px;" onclick="break_sustain()">BREAK TEST</div>
             </div>
         </div>
 
@@ -157,7 +160,7 @@
         let autoConnectTimer = null;
 
         window.transposeValue = 0;
-        window.split_point = 60; // 高低音区分割点
+        window.split_point = 52; // 高低音区分割点
         window.autoSustainEnabled = false;
         window.currentDeviceID = 0; // 默认设备编号 0 (Reface CP)
 
@@ -177,6 +180,9 @@
         window.activeNotes = new Set();      
         window.pedalHeldNotes = new Set();   
         window.allActiveNotes = new Set();
+        window.lowNotes = new Set();
+
+        const noteStartTimes = new Map(); // debug：用于记录每个 MIDI note 的按下起始时间
 
         // MIDI 编号转音名工具 (用于 UI 显示)
         function midiToNoteName(midi) {
@@ -193,6 +199,11 @@
             if (window.split_point > 108) window.split_point = 108;
 
             document.getElementById('split-display').innerText = midiToNoteName(window.split_point);
+
+            // 【新增】：立即刷新 UI，让蓝色小点跟随移动
+            if (typeof refreshKeyboardUI === 'function') {
+                refreshKeyboardUI();
+            }
         }
 
         function updateCombinedNotes() {
@@ -243,8 +254,9 @@
         // ================= MIDI 核心监听逻辑 =================
         function handleMIDIInput(event) {
             const [status, data1, data2] = event.data; const cmd = status >> 4; const channel = status & 0x0F;
-            if (channel === 15) return; 
+            if (channel === 15) return;
 
+            //踏板
             if (cmd === 11 && data1 === 64) {
                 window.isPedalDown = data2 >= 64;
                 if (!window.isPedalDown) {
@@ -254,9 +266,21 @@
                 }
                 return; 
             }
-
+            //音符
             if (cmd === 9 && data2 > 0) { 
-                window.activeNotes.add(data1); 
+                window.activeNotes.add(data1);
+
+                noteStartTimes.set(data1, performance.now());
+
+                // 【核心新增】：如果开启了自动踏板且弹奏了低音区音符
+                if (window.autoSustainEnabled && data1 < window.split_point) {
+
+                    console.log("lowNotes",lowNotes);
+                    // 立即触发 sustainer 进行冲突检测
+                    if (typeof sustainer === 'function') sustainer("check_collision", data1);
+                    window.lowNotes.add(data1);
+                }
+
                 if (window.isPedalDown) window.pedalHeldNotes.add(data1); 
                 else window.pedalHeldNotes.delete(data1); 
                 
@@ -271,8 +295,21 @@
                 if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
             } 
             else if (cmd === 8 || (cmd === 9 && data2 === 0)) { 
-                window.activeNotes.delete(data1); 
+                window.activeNotes.delete(data1);
+
+                // 【新增测试】：计算并输出持续时间
+                if (noteStartTimes.has(data1)) {
+                    const duration = performance.now() - noteStartTimes.get(data1);
+                    console.log(`%c[MIDI Timer] Note: ${data1} | Duration: ${duration.toFixed(2)}ms`, "color: #00e676; font-weight: bold;");
+                    noteStartTimes.delete(data1);
+                }
+
+                if (window.autoSustainEnabled) {
+                    if (typeof sustainer === 'function') sustainer("try_repress");
+                }
+
                 if (window.isPedalDown) window.pedalHeldNotes.add(data1);
+
                 updateCombinedNotes();
                 if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
             }
@@ -422,6 +459,7 @@
                 statusEl.innerText = "❌ 启动失败：MIDI 端口拒绝访问";
                 statusEl.style.color = "#ff5252";
             }
+            refreshKeyboardUI()
         }
 
         function stopControl() {
@@ -486,11 +524,18 @@
             const btn = document.getElementById('sustain-btn');
             if (window.autoSustainEnabled) {
                 btn.classList.add('btn-active');
+                if (typeof sendSustainOn === 'function') {
+                    sendSustainOn(window.currentDeviceID);
+                }
             } else {
                 btn.classList.remove('btn-active');
-            }
-            if (typeof sustainer === 'function') {
-                sustainer();
+                if (typeof sendSustainOff === 'function') {
+                    sendSustainOff(window.currentDeviceID);
+                }
+                window.pedalHeldNotes.clear();
+                window.lowNotes.clear(); // 同时清理低音池
+                if (typeof updateCombinedNotes === 'function') updateCombinedNotes();
+                if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
             }
         }
 
