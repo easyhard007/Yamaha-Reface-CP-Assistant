@@ -30,6 +30,7 @@
     <script src="background_animation.js"></script>
     <script src="light_control.js"></script>
     <script src="keyboard.js"></script>
+    <script src="midi_util.js"></script>
 </head>
 <body>
 
@@ -68,6 +69,19 @@
                 </div>
             </div>
         </div>
+        <div class="card" id="function-card">
+            <!-- 第一行：转调控制 -->
+            <div class="function-row">
+                <span class="function-label">Transpose</span>
+                <div class="glass-btn btn-circle" onclick="changeTranspose(-1)">−</div>
+                <span id="transpose-display" class="transpose-value">0</span>
+                <div class="glass-btn btn-circle" onclick="changeTranspose(1)">+</div>
+            </div>
+            <!-- 第二行：自动踏板 -->
+            <div class="function-row">
+                <div id="sustain-btn" class="glass-btn btn-rect" onclick="toggleAutoSustain()">AUTO-SUSTAIN</div>
+            </div>
+        </div>
 		<div class="card" id="debug-panel-chord" style="display:none;">
             <h3>🛠️ 算法 Debug 面板 (Tonal.js Filter)</h3>
             <table>
@@ -101,6 +115,7 @@
                 </tbody>
             </table>
         </div>
+
         <div id="fab-btn" onclick="openSettings()">?</div>
     </div>
 
@@ -126,6 +141,11 @@
         window.midiAccess = null; 
         window.midiOutput = null; 
         window.isRunning = false;
+        let autoConnectTimer = null;
+
+        window.transposeValue = 0;
+        window.autoSustainEnabled = false;
+        window.currentDeviceID = 0; // 默认设备编号 0 (Reface CP)
 
         // ================= 全局颜色状态 (用于驱动背景与 UI) =================
         window.visualState = {
@@ -146,6 +166,47 @@
 
         function updateCombinedNotes() {
             window.allActiveNotes = new Set([...window.activeNotes, ...window.pedalHeldNotes]);
+        }
+
+        function autoConnectRefaceCP() {
+            // 如果已经启动且已有设备，停止计时器并退出
+            if (window.isRunning && window.midiOutput) {
+                if (autoConnectTimer) {
+                    console.log("已连接设备，停止自动扫描。");
+                    clearInterval(autoConnectTimer);
+                    autoConnectTimer = null;
+                }
+                return;
+            }
+
+            if (!window.midiAccess) return;
+
+            // 遍历所有 MIDI 输出端口
+            for (let output of window.midiAccess.outputs.values()) {
+                const name = output.name.toLowerCase();
+                if (name.includes("reface cp")) {
+                    console.log("探测到 Yamaha Reface CP: " + output.name + "，正在尝试自动激活...");
+
+                    // 1. 设置全局输出对象
+                    window.midiOutput = output;
+
+                    // 2. 同步更新设置界面的下拉菜单 (可选，方便用户查看)
+                    const select = document.getElementById('midiPorts');
+                    if (select) {
+                        select.value = output.id;
+                    }
+
+                    // 3. 自动执行启动流程
+                    startControl();
+
+                    // 4. 成功后清除计时器
+                    if (autoConnectTimer) {
+                        clearInterval(autoConnectTimer);
+                        autoConnectTimer = null;
+                    }
+                    break;
+                }
+            }
         }
 
         // ================= MIDI 核心监听逻辑 =================
@@ -216,15 +277,29 @@
         };
 
         function onMIDISuccess(access) {
-            window.midiAccess = access; populateMIDIOutputs();
+            window.midiAccess = access;
+            populateMIDIOutputs();
+
+            // --- 【新增】 ---
+            // 1. 立即尝试一次自动连接
+            autoConnectRefaceCP();
+
+            // 2. 开启 5 秒一次的“雷达”扫描
+            if (!window.isRunning) {
+                autoConnectTimer = setInterval(autoConnectRefaceCP, 5000);
+            }
+
             for (let input of window.midiAccess.inputs.values()) input.onmidimessage = handleMIDIInput;
             window.midiAccess.onstatechange = (e) => {
                 populateMIDIOutputs();
                 if(e.port.type === "input") {
                     for (let input of window.midiAccess.inputs.values()) input.onmidimessage = handleMIDIInput;
                 }
+                // 如果设备是新插拔的，也触发一次检测
+                if (e.port.state === 'connected') autoConnectRefaceCP();
             };
         }
+
 
         function populateMIDIOutputs() {
             const select = document.getElementById('midiPorts');
@@ -250,9 +325,19 @@
             
             try {
                 window.isRunning = true;
+                // 启动成功，关掉轮询
+                if (autoConnectTimer) {
+                    clearInterval(autoConnectTimer);
+                    autoConnectTimer = null;
+                }
                 updateFabState();
                 startBtn.classList.add('success');
                 statusEl.innerText = "✅ 启动成功！已建立连接";
+
+                // 在发音之前，先让硬件的转调值回归到软件当前显示的值（通常是 0）
+                if (typeof sendTransposeSysEx === 'function') {
+                    sendTransposeSysEx(window.currentDeviceID, window.transposeValue);
+                }
 
                 // --- Yamaha Reface CP 专属：交错启动音效 (E6, G6, C7) ---
                 const notes = [88, 91, 96]; // E6, G6, C7的 MIDI 编号
@@ -336,6 +421,40 @@
             startBtn.classList.remove('success'); 
             statusEl.innerText = "已退回普通模式"; 
             statusEl.style.color = "#aaa";
+        }
+
+        function changeTranspose(delta) {
+            window.transposeValue += delta;
+            // 限制范围在 -12 到 +12
+            if (window.transposeValue > 12) window.transposeValue = 12;
+            if (window.transposeValue < -12) window.transposeValue = -12;
+
+            const display = document.getElementById('transpose-display');
+            display.innerText = (window.transposeValue > 0 ? "+" : "") + window.transposeValue;
+
+            // 缩放反馈
+            display.style.transform = "scale(1.2)";
+            setTimeout(() => display.style.transform = "scale(1)", 100);
+
+            // 【新增】：向硬件发送转调指令
+            if (typeof sendTransposeSysEx === 'function') {
+                sendTransposeSysEx(window.currentDeviceID, window.transposeValue);
+            }
+            // --- 【新增】：同步调性识别引擎的权重位移 ---
+            if (typeof shiftScaleAndWeights === 'function') {
+                shiftScaleAndWeights(delta); // 注意这里传入的是 delta (+1 或 -1)
+            }
+
+        }
+
+        function toggleAutoSustain() {
+            window.autoSustainEnabled = !window.autoSustainEnabled;
+            const btn = document.getElementById('sustain-btn');
+            if (window.autoSustainEnabled) {
+                btn.classList.add('btn-active');
+            } else {
+                btn.classList.remove('btn-active');
+            }
         }
 
     </script>

@@ -157,3 +157,42 @@ function checkAndApplyModulation(bestChordName) {
         }, 300);
     }
 }
+
+/**
+•
+手动强制平移调性权重与当前根音 (Direct Transposition Support)
+•
+@param {number} semitones - 位移半音数，例如 +1 或 -1 */
+function shiftScaleAndWeights(semitones) { if (semitones === 0) return;
+// (1) 处理 globalScaleRoot 的字符串位移
+if (typeof globalScaleRoot !== 'undefined' && globalScaleRoot !== "-") {
+// 利用 Tonal.Note.transpose 进行物理位移
+// 比如从 "C" 经过 1 半音变成 "C#"
+try { globalScaleRoot = Tonal.Note.transpose(globalScaleRoot, Tonal.Interval.fromSemitones(semitones));
+// 纠正可能出现的重升重降 (如 E# -> F)
+globalScaleRoot = Tonal.Note.simplify(globalScaleRoot);
+} catch (e) {
+console.error("Scale root transposition failed", e); }
+}
+// (2) 对 currentPitchWeights 进行数组循环轮换 (Array Rotation)
+// 逻辑：如果向上转 1 个半音 (+1)，则原本 C(0) 的权重应该跑到 C#(1) 去。
+ // 这相当于将数组向右滚动 delta 位。
+ if (typeof currentPitchWeights !== 'undefined' && currentPitchWeights.length === 12) {
+ let newWeights = new Array(12).fill(0); for (let i = 0; i < 12; i++) {
+ // 计算旋转后的新索引
+ let targetIdx = (i + semitones + 12) % 12;
+ newWeights[targetIdx] = currentPitchWeights[i];
+ }
+ // 写回全局权重池
+ for (let i = 0; i < 12; i++) {
+ currentPitchWeights[i] = newWeights[i];
+ }
+ }
+// (3) 触发 UI 更新与视觉反馈
+if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
+const weightRow = document.getElementById('pitch-weights-row');
+if (weightRow) {
+weightRow.classList.remove('flash-highlight-bg');
+void weightRow.offsetWidth;
+weightRow.classList.add('flash-highlight-bg');
+} }

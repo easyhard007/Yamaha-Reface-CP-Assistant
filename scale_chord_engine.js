@@ -519,7 +519,6 @@ function getEnharmonicChord(chordName) {
     return chordName;
 }
 
-// 核心级数翻译函数 (纯监控版，不包含强制前缀修正)
 // 核心级数翻译函数 (支持转位斜杠低音级数)
 function getRomanNumeral(chordName) {
     if (globalScaleRoot === "-") return chordName; 
