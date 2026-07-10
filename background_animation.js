@@ -261,7 +261,7 @@ window.addEventListener('resize', () => {
 function updateBackgroundState(volume, h, s, l) {
     if (!cbMaterial) return;
     // 1. 接收物理音量 (由虚拟钢琴引擎计算出的 0.0 ~ 1.0 包络)
-    cbTargetEnergy = volume;
+    cbTargetEnergy = volume*1.2;
     
     // 2. 接收和弦颜色
     // 为了防止背景太刺眼抢了前景 UI 的风头，我们把传入的明度(l)压低固定在 40% 左右

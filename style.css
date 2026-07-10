@@ -179,13 +179,14 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 20px;
+    /* 使用 clamp 让间距在最小 8px 和最大 20px 之间随宽度(5vw)自动变化 */
+    gap: clamp(8px, 4vw, 20px);
 }
 
 .function-label {
     color: rgba(255, 255, 255, 0.7);
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 16px;
+    font-weight: bold;
 }
 
 .transpose-value {
@@ -221,11 +222,13 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
     height: 36px;
     border-radius: 50%;
     font-size: 20px;
+    padding-bottom: 3px;
+    box-sizing: border-box; /* 确保 padding 不会撑大圆圈 */
 }
 
 .btn-rect {
-    padding: 10px 25px;
-    border-radius: 12px;
+    padding: 8px 18px;
+    border-radius: 10px;
     font-size: 14px;
     font-weight: bold;
     letter-spacing: 1px;
@@ -263,6 +266,13 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
         /* width: 70%;  */
         padding: 5px; 
     }
+    #function-card {
+        padding: 5px;
+        min-height: 10vh;
+    }
+    .function-row {
+        gap: 10px;
+    }
 }
 
 /* ==========================================
@@ -282,5 +292,30 @@ select { padding: 12px; border-radius: 8px; width: 100%; max-width: 320px; margi
     /* 3. 键盘上方的备选和弦及 OR (调小 1 号) */
     .chord-secondary-text {
         font-size: clamp(10px, 2.5vh, 16px) !important;
+    }
+
+    /* 4. 功能面板专属微调 */
+    #function-card {
+        gap: 8px; /* 减小两行之间的上下间距 */
+    }
+
+    .function-label {
+        font-size: 13px; /* 缩小 Transpose 标签 */
+    }
+
+    .transpose-value {
+        font-size: 18px; /* 缩小数字 */
+        min-width: 30px; /* 缩小占位 */
+    }
+
+    .btn-circle {
+        width: 32px;  /* 减小圆形按钮尺寸 */
+        height: 32px;
+        font-size: 18px;
+    }
+
+    .btn-rect {
+        padding: 8px 18px; /* 减小 Auto-Sustain 按钮尺寸 */
+        font-size: 13px;
     }
 }

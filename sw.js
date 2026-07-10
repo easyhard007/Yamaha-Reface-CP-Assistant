@@ -1,7 +1,7 @@
 // ==========================================
 // 强制刷新版 Service Worker
 // ==========================================
-const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.5';
+const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.10';
 
 const urlsToCache = [
   './',
