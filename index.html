@@ -20,7 +20,8 @@
     <script src="vendor/three.min.js"></script>
     <script src="vendor/tonal.min.js"></script>
     <script src="vendor/iro.min.js"></script>
-
+    <!-- 引入 NoSleep.js 解决屏幕常亮 -->
+    <script src="vendor/NoSleep.min.js"></script>
     
     <!-- 3. 引入业务解耦模块 -->
 	<script src="scale_chord_engine.js"></script> 
@@ -32,8 +33,9 @@
     <script src="keyboard.js"></script>
     <script src="midi_util.js"></script>
     <script src="auto_sustain.js"></script>
-    <!-- 引入 NoSleep.js 解决屏幕常亮 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/nosleep/0.12.0/NoSleep.min.js"></script>
+    <script src="midi_enhance.js"></script>
+
+
 </head>
 <body>
 
@@ -91,12 +93,11 @@
                 </div>
             </div>
 
-            <!-- 下部区域：自动踏板按钮 -->
-            <!-- 下部区域：自动踏板按钮与测试按钮 -->
+            <!-- 下部区域：自动踏板按钮与低音增强按钮 -->
             <div class="function-lower-area" style="gap: 15px;">
                 <div id="sustain-btn" class="glass-btn btn-rect" onclick="toggleAutoSustain()">AUTO-SUSTAIN</div>
-                <!-- 新增测试按钮，增加一个微红的边框色以示区别 -->
-                <div class="glass-btn btn-rect" style="border-color: rgba(255, 82, 82, 0.4); min-width: 80px;" onclick="break_sustain()">BREAK TEST</div>
+                <!-- 新增增强按钮，移除 BREAK TEST -->
+                <div id="enhance-btn" class="glass-btn btn-rect" onclick="toggleBassEnhance()">ENHANCE: 50%</div>
             </div>
         </div>
 
@@ -165,6 +166,8 @@
         window.split_point = 52; // 高低音区分割点
         window.autoSustainEnabled = false;
         window.currentDeviceID = 0; // 默认设备编号 0 (Reface CP)
+        window.bassEnhanceEnabled = false;
+        window.bassEnhanceRatio = 0.5; // 默认 50%
 
         const noSleep = new NoSleep();
 
@@ -180,7 +183,12 @@
         let wakelockAudioCtx = null;
         let wakelockOscillator = null;
 
-        window.isPedalDown = false;          
+
+        window.physicalPedalDown = false; // 物理踏板状态
+        window.autoPedalDown = false;     // 自动踏板状态
+        window.isPedalDown = false;       // 逻辑合并状态 (两者之一为 true 则为 true)
+
+
         window.activeNotes = new Set();      
         window.pedalHeldNotes = new Set();   
         window.allActiveNotes = new Set();
@@ -196,6 +204,20 @@
             return name + octave;
         }
 
+        // 踏板态同步函数
+        function syncPedalState() {
+            const newState = window.physicalPedalDown || window.autoPedalDown;
+
+            // 如果踏板从“踩下”状态变为“完全释放”状态，清理延音缓存
+            if (window.isPedalDown && !newState) {
+                window.pedalHeldNotes.clear();
+                updateCombinedNotes();
+                refreshKeyboardUI();
+            }
+
+            window.isPedalDown = newState;
+        }
+
         function changeSplitPoint(delta) {
             window.split_point += delta;
             // 限制在合理范围 (如 A0 到 C8)
@@ -208,6 +230,32 @@
             if (typeof refreshKeyboardUI === 'function') {
                 refreshKeyboardUI();
             }
+        }
+        // 修改增强比例并同步 UI
+        function setEnhanceRatio(ratio) {
+            window.bass_enhance_ratio = ratio;
+            const btn = document.getElementById('enhance-btn');
+            if (btn) {
+                btn.innerText = `ENHANCE: ${Math.round(ratio * 100)}%`;
+            }
+            // 重新计算权重字典，否则高度和音量都不会变
+            if (typeof updateBassWeightMap === 'function') {
+                updateBassWeightMap();
+            }
+        }
+
+        // 打开低音增强
+        function toggleBassEnhance() {
+            window.bassEnhanceEnabled = !window.bassEnhanceEnabled;
+            const btn = document.getElementById('enhance-btn');
+            if (window.bassEnhanceEnabled) {
+                btn.classList.add('btn-active');
+            } else {
+                btn.classList.remove('btn-active');
+            }
+            // 【新增】：切换时立即刷新键盘
+            if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
+            if (typeof updateBassWeightMap === 'function')  updateBassWeightMap();
         }
 
         function updateCombinedNotes() {
@@ -257,28 +305,45 @@
 
         // ================= MIDI 核心监听逻辑 =================
         function handleMIDIInput(event) {
-            const [status, data1, data2] = event.data; const cmd = status >> 4; const channel = status & 0x0F;
+            const [status, data1, data2] = event.data;
+            const cmd = status >> 4;
+            const channel = status & 0x0F;
             if (channel === 15) return;
 
-            //踏板
-            if (cmd === 11 && data1 === 64) {
-                window.isPedalDown = data2 >= 64;
-                if (!window.isPedalDown) {
-                    window.pedalHeldNotes.clear();
-                    updateCombinedNotes();
-                    if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
+            // 监听踏板信号和 CC 信号 (Control Change)
+            if (cmd === 11) {
+                if (data1 === 64) { // 物理踏板
+                    window.physicalPedalDown = (data2 >= 64); // 修正：写入 physical 变量
+                    syncPedalState();
+                    return;
                 }
-                return; 
+                // CC#81: drive旋钮，控制低音增强的音量
+                if (data1 === 81) {
+                    setEnhanceRatio(data2 / 127);
+                }
+                // CC#18: tremolo的depth旋钮，控制低音增强中心点 (映射到 36-60, 即 C2-C4)
+                else if (data1 === 18) {
+                    window.bass_enhance_center = Math.round(36 + (data2 / 127) * 24);
+                    if (typeof updateBassWeightMap === 'function') updateBassWeightMap();
+                }
+                // CC#19: tremolo的rate旋钮，控制低音增强的衰减范围 (映射到 5-48 半音)
+                else if (data1 === 19) {
+                    window.bass_enhance_spread = Math.round(5 + (data2 / 127) * 43);
+                    if (typeof updateBassWeightMap === 'function') updateBassWeightMap();
+                }
+
+                return;
             }
+
+
             //音符
-            if (cmd === 9 && data2 > 0) { 
+            if (cmd === 9 && data2 > 0) {
                 window.activeNotes.add(data1);
 
                 noteStartTimes.set(data1, performance.now());
 
                 // 【核心新增】：如果开启了自动踏板且弹奏了低音区音符
                 if (window.autoSustainEnabled && data1 < window.split_point) {
-
                     console.log("lowNotes",lowNotes);
                     // 立即触发 sustainer 进行冲突检测
                     if (typeof sustainer === 'function') sustainer("check_collision", data1);
@@ -294,7 +359,12 @@
                 if (typeof triggerVirtualNoteOn === 'function') {
                     triggerVirtualNoteOn(data1, data2);
                 }
-                
+
+                // 低音增强 (不再只检查 data1 >= 36 && data1 <= 62，由字典内部的权重决定是否发声）
+                if (window.bassEnhanceEnabled) {
+                    if (typeof bass_enhance === 'function') bass_enhance(data1, data2, true);
+                }
+
                 updateCombinedNotes();
                 if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
             } 
@@ -313,6 +383,11 @@
                 }
 
                 if (window.isPedalDown) window.pedalHeldNotes.add(data1);
+
+                // 【新增】：停止低音增强信号
+                if (window.bassEnhanceEnabled) {
+                    if (typeof bass_enhance === 'function') bass_enhance(data1, 0, false);
+                }
 
                 updateCombinedNotes();
                 if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();
@@ -583,6 +658,9 @@
                     sendSustainOff(window.currentDeviceID);
                 }
                 window.pedalHeldNotes.clear();
+                window.autoPedalDown = false;
+                if (typeof syncPedalState === 'function') syncPedalState();
+
                 window.lowNotes.clear(); // 同时清理低音池
                 if (typeof updateCombinedNotes === 'function') updateCombinedNotes();
                 if (typeof refreshKeyboardUI === 'function') refreshKeyboardUI();

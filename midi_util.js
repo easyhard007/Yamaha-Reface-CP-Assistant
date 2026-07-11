@@ -41,3 +41,19 @@ function sendSustainOff(deviceId) {
     window.midiOutput.send([0xB0, 64, 0]);
     console.log(`❌sustain OFF!`);
 }
+
+/**
+ * 发送基础 MIDI 音符信号
+ * @param {number} note - MIDI 编号
+ * @param {number} velocity - 力度 (0-127)
+ * @param {boolean} isOn - true 为 Note On, false 为 Note Off
+ */
+function sendMidiNote(note, velocity, isOn) {
+    if (!window.midiOutput || !window.isRunning) return;
+
+    // 限制 MIDI 范围 0-127 防止溢出报错
+    if (note < 0 || note > 127) return;
+
+    const status = isOn ? 0x90 : 0x80; // 默认 Channel 1
+    window.midiOutput.send([status, note, velocity]);
+}

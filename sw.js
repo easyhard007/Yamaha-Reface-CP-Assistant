@@ -1,7 +1,7 @@
 // ==========================================
 // 强制刷新版 Service Worker
 // ==========================================
-const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.20';
+const CACHE_NAME = 'yamaha-reface-cp-assistant-v0.25';
 
 const urlsToCache = [
   './',
@@ -16,14 +16,16 @@ const urlsToCache = [
   './light_control.js',
   './midi_util.js',
   './auto_sustain.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/nosleep/0.12.0/NoSleep.min.js',
+  './midi_enhance.js',
 
   './manifest.json',
   './icon.png',
 
   './vendor/three.min.js',
   './vendor/tonal.min.js',
-  './vendor/iro.min.js'
+  './vendor/iro.min.js',
+  './vendor/NoSleep.min.js'
+
 ];
 
 // 安装阶段：缓存所有文件，并强制跳过等待期

@@ -105,6 +105,18 @@ h2 {
 .active-red.white-key { background: #d0d0d0; border-bottom: 4px solid #888; }
 .active-red.black-key { background: #000; }
 
+.white-key .enhance-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%; /* 加深颜色：使用更浓郁的蓝色，不透明度设为 0.7 */
+    background: rgba(50, 110, 200, 0.3);
+    pointer-events: none;
+    z-index: 1;
+    transition: height 0.15s ease;
+    border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+
 /* 基础点：必须使用响应式大小和相对底部的百分比定位，防止琴键高度变化时点跑偏 */
 .dot { 
     position: absolute; 
@@ -122,9 +134,15 @@ h2 {
 }
 
 /* 红色：物理按下 (优先级最高) */
-.active-red .dot { 
-    display: block !important; /* 强制显示 */
-    background: #ff2a2a; 
+.active-red .dot {
+display: block !important;
+background: #ff2a2a !important;
+}
+
+/* 粉色：物理松开但被踏板保持 */
+.key.active-pink .dot {
+display: block !important;
+background: #ff80ab !important;
 }
 
 .key.is-split::after {
@@ -146,11 +164,7 @@ filter: drop-shadow(0 0 3px rgba(33, 150, 243, 0.8));
 pointer-events: none;
 }
 
-/* 粉色：物理松开但被踏板保持 */
-.key:not(.active-red).active-pink .dot { 
-    display: block !important; /* 强制显示 */
-    background: #ff80ab; 
-}
+
 
 /* === 4. 全局灯光控制面板 === */
 #color-card {

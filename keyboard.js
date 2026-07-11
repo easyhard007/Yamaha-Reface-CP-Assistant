@@ -64,7 +64,8 @@ function initKeyboardDOM() {
     calculateAndInjectDimensions();
 
     for (let i = NOTE_START; i <= NOTE_END; i++) { 
-        const keyDiv = document.createElement('div'); keyDiv.id = `key-${i}`;
+        const keyDiv = document.createElement('div');
+        keyDiv.id = `key-${i}`;
         keyDiv.className = [1, 3, 6, 8, 10].includes(i % 12) ? 'key black-key' : 'key white-key';
         
         // 【核心修复】：一个琴键只需要一个点！不要画蛇添足加 red/blue
@@ -73,6 +74,14 @@ function initKeyboardDOM() {
         dot.className = 'dot';
         
         keyDiv.appendChild(dot);
+
+        if (![1, 3, 6, 8, 10].includes(i % 12)) {
+            const bar = document.createElement('div');
+            bar.className = 'enhance-bar';
+            bar.id = `enhance-bar-${i}`;
+            keyDiv.appendChild(bar);
+        }
+
         keyboardDiv.appendChild(keyDiv);
     }
     const wrapper = document.getElementById('keyboard-wrapper');
@@ -112,7 +121,8 @@ let chordColorDebounceTimer = null;
 let lastColoredRoman = "";
 
 function refreshKeyboardUI() {
-    
+
+    //增加红点用于表示当前按下的音符和延音音符
     for (let i = NOTE_START; i <= NOTE_END; i++) {
         const keyDiv = document.getElementById(`key-${i}`);
         if (!keyDiv) continue;
@@ -129,6 +139,21 @@ function refreshKeyboardUI() {
             keyDiv.classList.remove('active-red'); keyDiv.classList.add('active-pink');
         } else {
             keyDiv.classList.remove('active-red'); keyDiv.classList.remove('active-pink');
+        }
+    }
+
+    //用于显示具有enhance的琴键
+    for (let i = NOTE_START; i <= NOTE_END; i++) {
+        const bar = document.getElementById(`enhance-bar-${i}`);
+        if (!bar) continue;
+
+        if (window.bassEnhanceEnabled) {
+            const weight = window.BASS_WEIGHT_MAP[i] || 0;
+            // 权重为 1 时高度为 33.3% (1/3)
+            const heightPercent = (weight * 33.3).toFixed(1);
+            bar.style.height = `${heightPercent}%`;
+        } else {
+            bar.style.height = '0%';
         }
     }
 
